@@ -1,0 +1,168 @@
+---
+title: Population Health and Economic Impacts of Severe Weather Events in the United
+  States of America
+author: "David Mallard"
+date: "21 June 2015"
+output: html_document
+---
+# Population Health and Economic Impacts of Severe Weather Events in the United States of America
+
+## Synopsis
+
+This report explores which types of weather events are associated with the greatest impacts on public health and economic cost in the United States of America. Historical data from the National Oceanic and Atmospheric Administration was obtained, processed and analysed. The analysis identified that excessive heat has caused the most fatalities, tornadoes have caused the greatest number of injuries and floods cause the greatest total damage.
+
+## Introduction
+
+Severe weather events can have significant impacts on public health, including tragic losses of life, and on the economy of the affected region. Identifying the extent of the impacts associated with different types of severe weather events is a crucial step in allowing policy makers to risk assessment and management.
+
+In this report, I examine the historical evidence about the public health and economic impacts of severe weather events in the United States of America. I use data from the National Oceanic and Atmospheric Administration's (NOAA) storm database, which records the characteristics of severe weather events recorded between 1950 and November 2011, including fatalities, injuries and property damage. Further information about the dataset is available in the [National Weather Service Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) and [National Climatic Data Center Storm Events FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+## Data Processing
+
+The data analyses in this report were carried out in R 3.2.0 and made use of the `dplyr`, `lubridate` and `ggplot2` packages.
+
+```{r echo=TRUE}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+```
+
+The data for this assignment come in the form of a comma-separated-value file compressed via the bzip2 algorithm to reduce its size. I began by downloading the file from the course web site and loading the data. Note that `read.csv` can directly decompress and read the contents of a bz2 file.
+
+```{r cache=TRUE, echo=TRUE}
+srcUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+localZip <- "repdata-data-StormData.csv.bz2"
+if(!file.exists(localZip)) {
+  download.file(srcUrl, localZip, method = "curl")
+}
+storm_data <- read.csv(localZip)
+```
+
+The dataset contains 37 variables but many aspects of the data are not relevant to this report. Accordingly, I selected the relevant variables, in particular those that indicated the date, event type, injuries, fatalities, and property and crop damage. I also converted the date variable to an appropriate format.
+
+```{r echo=TRUE}
+storm_data <- storm_data %>%
+  select(BGN_DATE, EVTYPE, INJURIES, FATALITIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+storm_data$BGN_DATE <- as.Date(storm_data$BGN_DATE, format="%m/%d/%Y %H:%M:%S")
+```
+
+To inspect the apparent completeness and quality of the dataset across time, I generated a time series plot of the number of events recorded per year.
+
+```{r echo=TRUE, eval=FALSE}
+# NB: The plot is not produced in this report to focus attention on figures that display actual results, but this code is provided to allow confirmation and reproduction of decision about filtering the dataset.
+storms_by_year <- storm_data %>%
+  mutate("year" = year(BGN_DATE)) %>%
+  group_by(year) %>%
+  summarise(count = n())
+ggplot(storms_by_year, aes(year, count)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Number of recorded weather events by year") +
+  xlab("Year") +
+  ylab("Number of events in dataset")
+```
+
+Inspection of the plot showed a marked increase in recorded events over time, with the sharpest rise occurring by around 1995. Consequently, I concluded that data from 1995 onward was the most reliable for subsequent analyses and excluded the earlier records.
+
+```{r echo=TRUE}
+storm_data <- storm_data %>%
+  filter(year(BGN_DATE) >= 1995)
+```
+
+Next, I calculated variables representing the dollar value of property and crop damage and summed them to calculate the total economic damage caused by each event.
+
+```{r echo=TRUE}
+# Convert property damage exponent codes to numeric values
+storm_data$PROPDMGEXP <- as.character(storm_data$PROPDMGEXP)
+storm_data$PROPDMGEXP[tolower(storm_data$PROPDMGEXP) == 'b'] <- "9"
+storm_data$PROPDMGEXP[tolower(storm_data$PROPDMGEXP) == 'm'] <- "6"
+storm_data$PROPDMGEXP[tolower(storm_data$PROPDMGEXP) == 'k'] <- "3"
+storm_data$PROPDMGEXP[tolower(storm_data$PROPDMGEXP) == 'h'] <- "2"
+storm_data$PROPDMGEXP <- as.numeric(storm_data$PROPDMGEXP)
+storm_data$PROPDMGEXP[is.na(storm_data$PROPDMGEXP)] <- 0
+
+# Convert crop damage exponent codes to numeric values
+storm_data$CROPDMGEXP <- as.character(storm_data$CROPDMGEXP)
+storm_data$CROPDMGEXP[tolower(storm_data$CROPDMGEXP) == 'b'] <- "9"
+storm_data$CROPDMGEXP[tolower(storm_data$CROPDMGEXP) == 'm'] <- "6"
+storm_data$CROPDMGEXP[tolower(storm_data$CROPDMGEXP) == 'k'] <- "3"
+storm_data$CROPDMGEXP[tolower(storm_data$CROPDMGEXP) == 'h'] <- "2"
+storm_data$CROPDMGEXP <- as.numeric(storm_data$CROPDMGEXP)
+storm_data$CROPDMGEXP[is.na(storm_data$CROPDMGEXP)] <- 0
+
+# Calculate numeric values of property, crop and total damage
+storm_data <- storm_data %>%
+  mutate(property_damage = PROPDMG * 10^PROPDMGEXP,
+         crop_damage = CROPDMG * 10^CROPDMGEXP,
+         total_damage = property_damage + crop_damage)
+```
+
+## Results
+
+### Across the United States, which types of events are most harmful with respect to population health?
+
+To assess public health impacts of weather events, I first generated a plot of the ten event types that accounted for the greatest total number of fatalities.
+
+```{r echo=TRUE}
+storms_by_fatalities <- storm_data %>%
+  group_by(EVTYPE) %>%
+  summarise(fatalities = sum(FATALITIES)) %>%
+  arrange(desc(fatalities))
+top_ten_fatalities <- storms_by_fatalities[1:10,]
+# This ensures the event types in the plot are ordered by their ranking on fatalities
+top_ten_fatalities$EVTYPE <- factor(top_ten_fatalities$EVTYPE, as.character(top_ten_fatalities$EVTYPE))
+ggplot(top_ten_fatalities, aes(EVTYPE, fatalities)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  ggtitle("Ten event types with highest total fatalities, 1995-2011") +
+  xlab("Event Type") +
+  ylab("Total Fatalities")
+```
+
+Excessive heat has the greatest impact in terms of total fatalities, followed by tornadoes and flash floods.
+
+Next, I generated a corresponding plot of the ten event types that were associated with the greatest number of total injuries.
+
+```{r echo=TRUE}
+storms_by_injuries <- storm_data %>%
+  group_by(EVTYPE) %>%
+  summarise(injuries = sum(INJURIES)) %>%
+  arrange(desc(injuries))
+top_ten_injuries <- storms_by_injuries[1:10,]
+# This ensures the event types in the plot are ordered by their ranking on injuries
+top_ten_injuries$EVTYPE <- factor(top_ten_injuries$EVTYPE, as.character(top_ten_injuries$EVTYPE))
+ggplot(top_ten_injuries, aes(EVTYPE, injuries)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  ggtitle("Ten event types with highest total injuries, 1995-2011") +
+  xlab("Event Type") +
+  ylab("Total Injuries")
+```
+
+Tornadoes have by far the greatest impact in terms of total injuries, followed by floods and excessive heat.
+
+### Across the United States, which types of events have the greatest economic consequences?
+
+To assess the economic impacts of weather events, I generated a plot of the ten event types that were associated with the greatest amount of total damage.
+
+```{r echo=TRUE}
+storms_by_damage <- storm_data %>%
+  group_by(EVTYPE) %>%
+  summarise(damage = sum(total_damage)) %>%
+  arrange(desc(damage)) %>%
+  mutate(damage_billions = damage / 10^9 )
+top_ten_damage <- storms_by_damage[1:10,]
+# This ensures the event types in the plot are ordered by their ranking on total damage
+top_ten_damage$EVTYPE <- factor(top_ten_damage$EVTYPE, as.character(top_ten_damage$EVTYPE))
+ggplot(top_ten_damage, aes(EVTYPE, damage_billions)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  ggtitle("Ten event types with highest total damage, 1995-2011") +
+  xlab("Event Type") +
+  ylab("Total Damage ($billions)")
+```
+
+Floods cause the greatest amount of economic damage, followed by hurricanes and typhoons, and by storm surges.
+
+## Limitations
+
+The records of event type in the dataset were not manipulated and there may have been some duplicate categories that were not merged together. Also, the economic impacts were not adjusted for inflation.
