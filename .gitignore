@@ -2,3 +2,7 @@
 .Rhistory
 .RData
 repdata-data-StormData.csv.bz2
+rsconnect
+severe-weather-events.html
+severe-weather-events_cache
+severe-weather-events_files
